@@ -1,7 +1,6 @@
 # Build directories
 build/
 dist/
-*.spec
 
 # Python cache
 __pycache__/
