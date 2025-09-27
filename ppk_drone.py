@@ -70,9 +70,9 @@ def selecionar_arquivo(entry, label_info, tipo):
     if tipo == ".MRK":
         filetypes = [("Arquivo MRK", "*.MRK"),("Todos os arquivos", "*.*")]
     elif tipo == ".OBS - ROVER":
-        filetypes = [("Arquivo OBS", "*.OBS;*.??O"),("Todos os arquivos", "*.*")]
+        filetypes = [("Arquivo OBS", "*.OBS;*.??O;*.??D"),("Todos os arquivos", "*.*")]
     elif tipo == ".OBS - BASE":
-        filetypes = [("Arquivo OBS", "*.OBS;*.??O"),("Todos os arquivos", "*.*")]
+        filetypes = [("Arquivo OBS", "*.OBS;*.??O;*.??D"),("Todos os arquivos", "*.*")]
     elif tipo == ".NAV":
         filetypes = [("Arquivo NAV", "*.NAV;*.??N"),("Todos os arquivos", "*.*")]
 
@@ -82,6 +82,20 @@ def selecionar_arquivo(entry, label_info, tipo):
         entry.insert(0, caminho)
         if tipo in ['.OBS - ROVER', '.OBS - BASE']:
             try:
+                #VERIFICA SE É HATANAKA E CONVERTE PARA RINEX
+                if caminho.lower()[-4:].startswith('.') and caminho.lower().endswith('d'):
+                    tempfile = os.path.splitext(caminho)[0] + os.path.splitext(caminho)[1].replace("d", "o")
+                    comando = f'"{os.path.normpath(crx2rnx_path)}" -f "{os.path.normpath(caminho)}"'
+                    try:
+                        resultado = subprocess.run(comando, shell=True, capture_output=True, text=True)
+                        if resultado.returncode == 0:
+                            caminho = tempfile
+                            entry.delete(0, tk.END)
+                            entry.insert(0, caminho)
+                    except Exception as e:
+                        messagebox.showerror("Erro", f"Erro ao converter CRX para RINEX:\n{e}")
+                        return
+
                 lat, lon, alt, t0, t1 = parse_obs_info(caminho)
                 lat_dms =   "{}°{}'{:.1f}".format(*decimal_to_dms(lat, is_lat=True)) 
                 lon_dms = "{}°{}'{:.1f}".format(*decimal_to_dms(lon, is_lat=False))  
@@ -111,6 +125,7 @@ def selecionar_arquivo(entry, label_info, tipo):
 # Caminho absoluto para o executável na mesma pasta do script
 script_dir = os.path.dirname(os.path.abspath(__file__))
 rnx2rtkp_path = os.path.join(script_dir, "rnx2rtkp.exe")
+crx2rnx_path = os.path.join(script_dir, "crx2rnx.exe")
 config_path = os.path.join(os.path.dirname(rnx2rtkp_path), "config.conf")
 
 root = tk.Tk()
