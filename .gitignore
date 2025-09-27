@@ -5,6 +5,7 @@ dist/
 
 # Python cache
 __pycache__/
+.ipynb_checkpoints/
 *.py[cod]
 *$py.class
 *.so
