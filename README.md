@@ -264,7 +264,7 @@ Este projeto está licenciado sob a Licença MIT - veja o arquivo [LICENSE](LICE
 
 **Alefe Robert**
 - GitHub: [@aleferobert](https://github.com/aleferobert)
-- Email: [alefe.robert@email.com](mailto:alefe.robert@email.com)
+- Email: [alefetorresrr@gmail.com](mailto:alefetorresrr@gmail.com)
 
 ## 🙏 Agradecimentos
 
