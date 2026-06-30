@@ -185,19 +185,56 @@ def interpolate_positions_by_time(mrk_df, pos_df):
     })
 
 
-def process_ppk(mrk_path, pos_path, output_dir, output_format, proj4_str=None):
-    """
-    Função principal para processar MRK e POS e gerar arquivo de saída.
-    output_format: "dji_terra", "webodm" ou "pixel4d"
-    """
+def merge_pos_files(pos_paths, output_path):
+    """Concatena vários .pos (segmentos) em um único arquivo ordenado por tempo."""
+    if not pos_paths:
+        raise ValueError("Nenhum arquivo .pos para mesclar.")
+
+    header_lines = []
+    data_frames = []
+
+    for pos_path in pos_paths:
+        with open(pos_path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if line.startswith("%"):
+                    if not header_lines:
+                        header_lines.append(line)
+                    continue
+                break
+
+        df = parse_pos_standard(pos_path)
+        if not df.empty:
+            data_frames.append(df)
+
+    if not data_frames:
+        raise ValueError("Nenhuma solução válida nos arquivos .pos parciais.")
+
+    merged = pd.concat(data_frames, ignore_index=True).sort_values("timestamp")
+    merged = merged.drop_duplicates(subset=["timestamp"], keep="first")
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        if header_lines:
+            f.writelines(header_lines)
+        for _, row in merged.iterrows():
+            f.write(
+                f"{row['timestamp'].strftime('%Y/%m/%d %H:%M:%S.%f')[:-3]} "
+                f"{row['lat']:.8f} {row['lon']:.8f} {row['height']:.3f}\n"
+            )
+
+
+def build_georef_dataframe(mrk_path, pos_path):
+    """Gera DataFrame georreferenciado a partir de MRK + POS."""
     image_dir = os.path.dirname(mrk_path)
     mrk_df = parse_mrk_gps_time(mrk_path, image_dir)
     if mrk_df.empty:
         raise ValueError("Nenhuma imagem encontrada para os índices do arquivo .MRK.")
 
     pos_df = parse_pos_standard(pos_path)
-    result_df = interpolate_positions_by_time(mrk_df, pos_df)
+    return interpolate_positions_by_time(mrk_df, pos_df)
 
+
+def save_georef_dataframe(result_df, output_dir, output_format, proj4_str=None):
+    """Salva DataFrame georreferenciado no formato escolhido."""
     if output_format == "dji_terra":
         output_file = os.path.join(output_dir, "POS_PPK.txt")
         result_df.to_csv(output_file, index=False)
@@ -225,6 +262,42 @@ def process_ppk(mrk_path, pos_path, output_dir, output_format, proj4_str=None):
             names = [os.path.basename(path) for path in result_df["file_path"]]
             for name, x, y, z in zip(names, xs, ys, result_df["height"]):
                 f.write(f"{name}\t{x}\t{y}\t{z:.2f}\n")
-
     else:
         raise ValueError("Formato de saída não suportado.")
+
+
+def consolidated_output_basename(output_format):
+    names = {
+        "dji_terra": "POS_PPK_consolidado.txt",
+        "pixel4d": "geolocation_consolidado.csv",
+        "webodm": "geo_consolidado.txt",
+    }
+    if output_format not in names:
+        raise ValueError("Formato de saída não suportado.")
+    return names[output_format]
+
+
+def build_combined_georef_dataframe(mrk_pos_pairs):
+    """Combina várias missões (mrk_path, pos_path) em um único DataFrame."""
+    frames = []
+    for mrk_path, pos_path in mrk_pos_pairs:
+        frames.append(build_georef_dataframe(mrk_path, pos_path))
+    if not frames:
+        raise ValueError("Nenhuma missão para consolidar.")
+    return pd.concat(frames, ignore_index=True)
+
+
+def process_combined_missions(mrk_pos_pairs, output_dir, output_format, proj4_str=None):
+    """Gera planilha única com imagens de todas as missões."""
+    combined = build_combined_georef_dataframe(mrk_pos_pairs)
+    save_georef_dataframe(combined, output_dir, output_format, proj4_str)
+    return combined
+
+
+def process_ppk(mrk_path, pos_path, output_dir, output_format, proj4_str=None):
+    """
+    Função principal para processar MRK e POS e gerar arquivo de saída.
+    output_format: "dji_terra", "webodm" ou "pixel4d"
+    """
+    result_df = build_georef_dataframe(mrk_path, pos_path)
+    save_georef_dataframe(result_df, output_dir, output_format, proj4_str)

@@ -10,10 +10,18 @@ a = Analysis(
         ('rnx2rtkp.exe', '.'),
         ('crx2rnx.exe', '.'),
         ('config.conf', '.'),
-        ('ppk_process.py', '.')
+        ('ppk_process.py', '.'),
+        ('reference_points.py', '.'),
+        ('obs_coverage.py', '.'),
+        ('ppk_runner.py', '.'),
+        ('mission_utils.py', '.'),
     ],
     hiddenimports=[
         'ppk_process',
+        'reference_points',
+        'obs_coverage',
+        'ppk_runner',
+        'mission_utils',
         'numpy',
         'pandas'
     ],
