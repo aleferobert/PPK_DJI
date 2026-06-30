@@ -182,6 +182,7 @@ frame_saida.grid(row=8, column=1, sticky='w')
 tk.Label(frame_saida, text="Formato de saída:").grid(row=0, column=0, sticky='w')
 tk.Radiobutton(frame_saida, text="DJI Terra (CSV)", variable=saida_var, value="dji_terra").grid(row=0, column=1)
 tk.Radiobutton(frame_saida, text="WebODM (TXT)", variable=saida_var, value="webodm").grid(row=0, column=2)
+tk.Radiobutton(frame_saida, text="Pixel4D (CSV)", variable=saida_var, value="pixel4d").grid(row=0, column=3)
 
 # Importa o módulo de processamento PPK
 import sys
