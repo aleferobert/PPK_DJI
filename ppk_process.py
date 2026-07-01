@@ -233,14 +233,43 @@ def build_georef_dataframe(mrk_path, pos_path):
     return interpolate_positions_by_time(mrk_df, pos_df)
 
 
-def save_georef_dataframe(result_df, output_dir, output_format, proj4_str=None):
-    """Salva DataFrame georreferenciado no formato escolhido."""
+def consolidated_output_basename(output_format):
+    names = {
+        "dji_terra": "POS_PPK_consolidado.txt",
+        "pixel4d": "geolocation_consolidado.csv",
+        "webodm": "geo_consolidado.txt",
+    }
+    if output_format not in names:
+        raise ValueError("Formato de saída não suportado.")
+    return names[output_format]
+
+
+def _output_basename(output_format, consolidated=False):
+    if consolidated:
+        return consolidated_output_basename(output_format)
+    names = {
+        "dji_terra": "POS_PPK.txt",
+        "pixel4d": "geolocation.csv",
+        "webodm": "geo.txt",
+    }
+    if output_format not in names:
+        raise ValueError("Formato de saída não suportado.")
+    return names[output_format]
+
+
+def save_georef_dataframe(
+    result_df, output_dir, output_format, proj4_str=None, consolidated=False
+):
+    """Salva DataFrame georreferenciado no formato escolhido. Retorna o caminho gravado."""
+    os.makedirs(output_dir, exist_ok=True)
+    output_file = os.path.join(
+        output_dir, _output_basename(output_format, consolidated)
+    )
+
     if output_format == "dji_terra":
-        output_file = os.path.join(output_dir, "POS_PPK.txt")
         result_df.to_csv(output_file, index=False)
 
     elif output_format == "pixel4d":
-        output_file = os.path.join(output_dir, "geolocation.csv")
         pixel4d_df = pd.DataFrame({
             "Image name": [os.path.basename(path) for path in result_df["file_path"]],
             "latitude": result_df["latitude"],
@@ -256,7 +285,6 @@ def save_georef_dataframe(result_df, output_dir, output_format, proj4_str=None):
         transformer = Transformer.from_crs("epsg:4326", proj4_str, always_xy=True)
         xs, ys = transformer.transform(result_df["longitude"].values, result_df["latitude"].values)
 
-        output_file = os.path.join(output_dir, "geo.txt")
         with open(output_file, "w", encoding="utf-8") as f:
             f.write(f"{proj4_str}\n")
             names = [os.path.basename(path) for path in result_df["file_path"]]
@@ -265,16 +293,7 @@ def save_georef_dataframe(result_df, output_dir, output_format, proj4_str=None):
     else:
         raise ValueError("Formato de saída não suportado.")
 
-
-def consolidated_output_basename(output_format):
-    names = {
-        "dji_terra": "POS_PPK_consolidado.txt",
-        "pixel4d": "geolocation_consolidado.csv",
-        "webodm": "geo_consolidado.txt",
-    }
-    if output_format not in names:
-        raise ValueError("Formato de saída não suportado.")
-    return names[output_format]
+    return output_file
 
 
 def build_combined_georef_dataframe(mrk_pos_pairs):
@@ -288,10 +307,11 @@ def build_combined_georef_dataframe(mrk_pos_pairs):
 
 
 def process_combined_missions(mrk_pos_pairs, output_dir, output_format, proj4_str=None):
-    """Gera planilha única com imagens de todas as missões."""
+    """Gera planilha única com imagens de todas as missões. Retorna o caminho do arquivo."""
     combined = build_combined_georef_dataframe(mrk_pos_pairs)
-    save_georef_dataframe(combined, output_dir, output_format, proj4_str)
-    return combined
+    return save_georef_dataframe(
+        combined, output_dir, output_format, proj4_str, consolidated=True
+    )
 
 
 def process_ppk(mrk_path, pos_path, output_dir, output_format, proj4_str=None):
@@ -300,4 +320,4 @@ def process_ppk(mrk_path, pos_path, output_dir, output_format, proj4_str=None):
     output_format: "dji_terra", "webodm" ou "pixel4d"
     """
     result_df = build_georef_dataframe(mrk_path, pos_path)
-    save_georef_dataframe(result_df, output_dir, output_format, proj4_str)
+    return save_georef_dataframe(result_df, output_dir, output_format, proj4_str)

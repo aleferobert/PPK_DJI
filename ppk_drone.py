@@ -50,18 +50,42 @@ def converter_hatanaka_se_necessario(caminho):
     return caminho
 
 
-# Caminho do executável e config.conf (ajuste conforme seu ambiente)
-# Caminho absoluto para o executável na mesma pasta do script
-script_dir = os.path.dirname(os.path.abspath(__file__))
-rnx2rtkp_path = os.path.join(script_dir, "rnx2rtkp.exe")
-crx2rnx_path = os.path.join(script_dir, "crx2rnx.exe")
-config_path = os.path.join(os.path.dirname(rnx2rtkp_path), "config.conf")
-
 import sys
-sys.path.append(script_dir)
+
+def _app_dir():
+    """Pasta do .exe (gravável) ou do script."""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _bundle_dir():
+    """Pasta dos recursos empacotados (PyInstaller _internal)."""
+    if getattr(sys, "frozen", False):
+        return sys._MEIPASS
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _resource_path(name):
+    """Localiza executáveis/config: prioriza pasta do .exe, depois bundle."""
+    for base in (_app_dir(), _bundle_dir()):
+        path = os.path.join(base, name)
+        if os.path.isfile(path):
+            return path
+    return os.path.join(_bundle_dir(), name)
+
+
+# Caminho do executável e config.conf
+script_dir = _app_dir()
+bundle_dir = _bundle_dir()
+rnx2rtkp_path = _resource_path("rnx2rtkp.exe")
+crx2rnx_path = _resource_path("crx2rnx.exe")
+config_path = _resource_path("config.conf")
+
+sys.path.append(bundle_dir)
 import ppk_process
 from reference_points import ReferencePointStore
-from obs_coverage import parse_obs_info, parse_obs_span, plan_coverage
+from obs_coverage import parse_obs_info, parse_obs_span, plan_coverage, format_periodo
 from ppk_runner import process_rover_with_bases
 from mission_utils import discover_rover_for_mrk, discover_base_obs
 
@@ -84,9 +108,9 @@ tree_missions.heading("pasta", text="Pasta")
 tree_missions.heading("mrk", text="MRK")
 tree_missions.heading("rover", text="Rover OBS")
 tree_missions.heading("status", text="Status")
-tree_missions.column("pasta", width=180)
-tree_missions.column("mrk", width=140)
-tree_missions.column("rover", width=140)
+tree_missions.column("pasta", width=140)
+tree_missions.column("mrk", width=160)
+tree_missions.column("rover", width=160)
 tree_missions.column("status", width=80)
 tree_missions.grid(row=0, column=0, columnspan=4, sticky="ew", pady=(0, 4))
 
@@ -121,8 +145,14 @@ scroll_bases = ttk.Scrollbar(frame_bases, orient="vertical", command=tree_bases.
 tree_bases.configure(yscrollcommand=scroll_bases.set)
 scroll_bases.grid(row=0, column=4, sticky="ns")
 
-label_cobertura = tk.Label(root, text="", justify="left", fg="darkorange")
-label_cobertura.grid(row=2, column=1, sticky="w")
+frame_cobertura = tk.LabelFrame(root, text="Períodos", padx=5, pady=5)
+frame_cobertura.grid(row=2, column=0, columnspan=3, sticky="ew", padx=5, pady=(6, 0))
+
+frame_periodos = tk.Frame(frame_cobertura)
+frame_periodos.grid(row=0, column=0, sticky="w")
+
+label_aviso_cobertura = tk.Label(frame_cobertura, text="", anchor="w", justify="left")
+label_aviso_cobertura.grid(row=1, column=0, sticky="w", pady=(4, 0))
 
 frame_gms = tk.Frame(root)
 frame_gms.grid(row=3, column=1, sticky='w', pady=(10, 0))
@@ -150,6 +180,77 @@ tk.Label(frame_saida, text="Formato de saída:").grid(row=0, column=0, sticky='w
 tk.Radiobutton(frame_saida, text="DJI Terra (CSV)", variable=saida_var, value="dji_terra").grid(row=0, column=1)
 tk.Radiobutton(frame_saida, text="WebODM (TXT)", variable=saida_var, value="webodm").grid(row=0, column=2)
 tk.Radiobutton(frame_saida, text="Pixel4D (CSV)", variable=saida_var, value="pixel4d").grid(row=0, column=3)
+
+
+def _periodo_de_item(item, obs_key="rover"):
+    if "t0" in item and "t1" in item:
+        return format_periodo(item["t0"], item["t1"])
+    span = parse_obs_span(item[obs_key])
+    return format_periodo(span.t0, span.t1)
+
+
+def _limpar_frame(frame):
+    for widget in frame.winfo_children():
+        widget.destroy()
+
+
+def _aviso_cobertura():
+    if not missions_data and not bases_data:
+        return "", "gray"
+    if missions_data and not bases_data:
+        return "Adicione arquivo OBS de base", "darkorange"
+    if bases_data and not missions_data:
+        return "Adicione arquivo .MRK de rover", "darkorange"
+
+    base_spans = [parse_obs_span(path) for path in obter_caminhos_base()]
+    problemas = []
+
+    for i, mission in enumerate(missions_data, 1):
+        rover = parse_obs_span(mission["rover"])
+        report = plan_coverage(rover, base_spans, "POS_PPK.pos")
+
+        if any("marco físico" in e for e in report.errors):
+            return report.errors[0], "red"
+
+        if report.ok and not report.warnings:
+            continue
+
+        if report.errors:
+            problemas.append(f"Rover {i}: {report.errors[0]}")
+        elif report.gaps:
+            g0, g1 = report.gaps[0]
+            problemas.append(f"Rover {i}: sem base em {format_periodo(g0, g1)}")
+        elif report.warnings:
+            problemas.append(f"Rover {i}: {report.warnings[0]}")
+
+    if problemas:
+        return problemas[0], "red"
+    return "Cobertura OK", "green"
+
+
+def atualizar_status_cobertura():
+    _limpar_frame(frame_periodos)
+
+    row = 0
+    for i, mission in enumerate(missions_data, 1):
+        tk.Label(
+            frame_periodos,
+            text=f"Rover {i} = {_periodo_de_item(mission)}",
+            anchor="w",
+        ).grid(row=row, column=0, sticky="w")
+        row += 1
+
+    for i, base in enumerate(bases_data, 1):
+        rotulo = f"Base {i}" if len(bases_data) > 1 else "Base"
+        tk.Label(
+            frame_periodos,
+            text=f"{rotulo} = {_periodo_de_item(base, obs_key='obs')}",
+            anchor="w",
+        ).grid(row=row, column=0, sticky="w")
+        row += 1
+
+    aviso, cor = _aviso_cobertura()
+    label_aviso_cobertura.config(text=aviso, fg=cor)
 
 
 def atualizar_lista_pontos():
@@ -316,7 +417,9 @@ def registrar_base_obs(obs_path, avisar=True):
 
     obs_path = converter_hatanaka_se_necessario(obs_path)
     info = discover_base_obs(obs_path)
-    parse_obs_span(info["obs"])
+    span = parse_obs_span(info["obs"])
+    info["t0"] = span.t0
+    info["t1"] = span.t1
 
     if bases_data and bases_data[0]["nav"] != info["nav"]:
         if avisar:
@@ -394,39 +497,6 @@ tk.Button(frame_bases, text="Limpar", command=limpar_bases).grid(
 )
 
 
-def atualizar_status_cobertura():
-    base_paths = obter_caminhos_base()
-    if not missions_data or not base_paths:
-        label_cobertura.config(text="", fg="darkorange")
-        return
-
-    try:
-        bases = [parse_obs_span(path) for path in base_paths]
-        problemas = []
-        ok_count = 0
-
-        for mission in missions_data:
-            rover = parse_obs_span(mission["rover"])
-            report = plan_coverage(rover, bases, "POS_PPK.pos")
-            nome = os.path.basename(mission["mrk"])
-            if report.ok and not report.warnings:
-                ok_count += 1
-            elif report.errors:
-                problemas.append(f"{nome}: {report.errors[0]}")
-            elif report.warnings:
-                problemas.append(f"{nome}: {report.warnings[0]}")
-
-        if problemas:
-            label_cobertura.config(text=f"↳ {problemas[0]}", fg="red")
-        elif ok_count == len(missions_data):
-            label_cobertura.config(
-                text=f"↳ Cobertura OK para {ok_count} rover(s)",
-                fg="green",
-            )
-    except Exception as e:
-        label_cobertura.config(text=f"↳ Erro ao verificar cobertura: {e}", fg="red")
-
-
 def _escolher_pasta_saida():
     pasta = filedialog.askdirectory(title="Pasta para planilha consolidada")
     if pasta:
@@ -453,7 +523,7 @@ def atualizar_tree_missions():
 
 def _definir_pasta_saida_padrao(folder):
     if not entry_saida_consolidada.get().strip():
-        entry_saida_consolidada.insert(0, folder)
+        entry_saida_consolidada.insert(0, os.path.normpath(folder))
 
 
 def _missao_ja_existe(mrk_path):
@@ -467,6 +537,9 @@ def registrar_missao_mrk(mrk_path, avisar=True):
 
     info = discover_rover_for_mrk(mrk_path)
     info["rover"] = converter_hatanaka_se_necessario(info["rover"])
+    span = parse_obs_span(info["rover"])
+    info["t0"] = span.t0
+    info["t1"] = span.t1
     info["status"] = "pendente"
     missions_data.append(info)
     _definir_pasta_saida_padrao(info["folder"])
@@ -522,6 +595,7 @@ def limpar_missoes():
         return
     if messagebox.askyesno("Confirmar", "Remover todas as missões da lista?"):
         missions_data.clear()
+        entry_saida_consolidada.delete(0, tk.END)
         atualizar_tree_missions()
         atualizar_status_cobertura()
 
@@ -648,12 +722,11 @@ def executar_processamento(l_arg):
         return
 
     try:
-        ppk_process.process_combined_missions(
+        arquivo = ppk_process.process_combined_missions(
             mrk_pos_pairs, output_dir, saida_var.get(), proj4_str=None
         )
-        arquivo = os.path.join(
-            output_dir, ppk_process.consolidated_output_basename(saida_var.get())
-        )
+        if not os.path.isfile(arquivo):
+            raise FileNotFoundError(f"Arquivo não encontrado após gravação:\n{arquivo}")
     except Exception as e:
         messagebox.showerror("Erro", f"Falha ao gerar planilha consolidada:\n{e}")
         return
@@ -685,4 +758,5 @@ def executar_script():
 tk.Button(root, text="Executar script", command=executar_script, bg="lightgreen").grid(row=5, column=1, pady=10)
 
 atualizar_lista_pontos()
+atualizar_status_cobertura()
 root.mainloop()

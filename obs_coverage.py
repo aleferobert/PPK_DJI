@@ -44,14 +44,22 @@ class CoverageReport:
     errors: List[str] = field(default_factory=list)
 
     def alert_message(self) -> str:
-        lines = []
+        lines = [
+            f"Rover: {self.rover.basename}",
+            f"  Período: {format_periodo(self.rover.t0, self.rover.t1)}",
+            "Bases:",
+        ]
+        for base in self.bases:
+            lines.append(f"  • {base.basename}: {format_periodo(base.t0, base.t1)}")
+        lines.append("")
+
         if self.errors:
             lines.append("Erros:")
             lines.extend(f"  • {e}" for e in self.errors)
         if self.gaps:
-            lines.append("Períodos do rover sem cobertura de base:")
+            lines.append("Trechos do rover SEM cobertura de base:")
             for g0, g1 in self.gaps:
-                lines.append(f"  • {g0} → {g1}")
+                lines.append(f"  • {format_periodo(g0, g1)}")
         if self.warnings:
             lines.append("Avisos:")
             lines.extend(f"  • {w}" for w in self.warnings)
@@ -59,9 +67,15 @@ class CoverageReport:
             lines.append("Processamento por segmento:")
             for seg in self.segments:
                 lines.append(
-                    f"  • {seg.ts} → {seg.te}  |  base: {os.path.basename(seg.base_path)}"
+                    f"  • {format_periodo(seg.ts, seg.te)}  |  "
+                    f"base: {os.path.basename(seg.base_path)}"
                 )
         return "\n".join(lines)
+
+
+def format_periodo(t0: datetime, t1: datetime) -> str:
+    fmt = "%d/%m/%Y %H:%M:%S"
+    return f"{t0.strftime(fmt)} → {t1.strftime(fmt)}"
 
 
 def parse_obs_span(file_path: str) -> ObsSpan:
@@ -197,8 +211,8 @@ def plan_coverage(
         seg_end = min(r1, base.t1)
         if seg_start >= seg_end:
             report.warnings.append(
-                f"Base '{base.basename}' ({base.t0} → {base.t1}) "
-                f"não sobrepõe o rover ({r0} → {r1})."
+                f"Base '{base.basename}' ({format_periodo(base.t0, base.t1)}) "
+                f"não sobrepõe o rover ({format_periodo(r0, r1)})."
             )
             continue
 
@@ -238,7 +252,7 @@ def plan_coverage(
             if gap_start < gap_end:
                 report.warnings.append(
                     f"Intervalo sem base entre '{b1.basename}' e '{b2.basename}': "
-                    f"{gap_start} → {gap_end}"
+                    f"{format_periodo(gap_start, gap_end)}"
                 )
 
     report.segments = segments
